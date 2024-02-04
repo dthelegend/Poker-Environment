@@ -94,9 +94,11 @@ impl Deck {
     }
 
     fn draw(&mut self) -> Card {
-        let card = self.rng.gen();
+        let card_value: CardValue = self.rng.gen_range(2usize..15).try_into().expect("Card Values should all be in range");
+        let card_suit: CardSuit = self.rng.gen_range(0usize..4).try_into().expect("Card Suits should all be in range");
+        let card = Card(card_suit, card_value);
 
-        if self.taboo_list.contains(card) {
+        if self.taboo_list.contains(&card) {
             self.draw()
         }
         else {
@@ -157,9 +159,10 @@ impl StartedGame {
     // Last two players in the list are always small and big blind
     fn new_with_players(players: Vec<PlayerInfo>, minimum_bet: usize) -> Self {
         let mut deck: Deck = Deck::new();
+        let players_dealt = players.into_iter().map(|p| DealtPlayer { player_info: p, cards: deck.draw_n(), current_bet: 0}).collect();
 
         StartedGame {
-            players: players.into_iter().map(|p| DealtPlayer { player_info: p, cards: deck.draw_n(), current_bet: 0}).collect(),
+            players: (VecDeque::with_capacity(players_dealt.len()), players_dealt),
             game_stage: GameStage::Dealt(deck),
             minimum_bet,
             expected_bet: minimum_bet,
