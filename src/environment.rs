@@ -1,16 +1,21 @@
+use std::any::Any;
 use std::cmp::{min, Ordering};
 use std::collections::VecDeque;
+use std::fmt::{Display, Formatter};
+use std::iter::zip;
+use itertools::{Itertools};
 use rand;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::Rng;
 use rand::rngs::ThreadRng;
 use uuid::Uuid;
+use crate::environment::Hand::{Flush, Straight, StraightFlush};
 
-#[cfg!(test)]
+#[cfg(test)]
 mod tests;
 
-#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
+#[derive(Ord, Eq, PartialEq, PartialOrd, Copy, Clone, Debug)]
 enum CardSuit {
     Hearts = 0,
     Diamonds = 1,
@@ -29,22 +34,7 @@ impl Distribution<CardSuit> for Standard {
     }
 }
 
-#[derive(Debug)]
-enum CardColor {
-    Red,
-    Black
-}
-
-impl CardSuit {
-    fn get_color(&self) -> CardColor {
-        match self {
-            CardSuit::Hearts | CardSuit::Diamonds => CardColor::Red,
-            CardSuit::Clubs | CardSuit::Spades => CardColor::Black,
-        }
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Copy, Clone, Hash)]
 enum CardValue {
     Ace = 14,
     Two = 2,
@@ -81,8 +71,39 @@ impl Distribution<CardValue> for Standard {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 struct Card(CardSuit, CardValue);
+
+impl Display for Card {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.0, self.1)
+    }
+}
+
+impl Display for CardSuit {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            CardSuit::Hearts => "H",
+            CardSuit::Diamonds => "D",
+            CardSuit::Clubs => "C",
+            CardSuit::Spades => "S"
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl Display for CardValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            CardValue::Ace => "A".to_string(),
+            CardValue::King => "K".to_string(),
+            CardValue::Queen => "Q".to_string(),
+            CardValue::Jack => "J".to_string(),
+            a => (*a as isize).to_string()
+        };
+        write!(f, "{}", s)
+    }
+}
 
 impl Distribution<Card> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Card {
@@ -90,7 +111,15 @@ impl Distribution<Card> for Standard {
     }
 }
 
-impl PartialOrd<Card> for Card {
+impl Eq for Card {}
+
+impl PartialEq<Self> for Card {
+    fn eq(&self, other: &Self) -> bool {
+        matches!(self.cmp(other), Ordering::Equal)
+    }
+}
+
+impl PartialOrd<Self> for Card {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -110,6 +139,157 @@ impl Ord for Card {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+#[repr(isize)]
+enum Hand {
+    // High Card
+    StraightFlush(Card) = 9,
+    // FourKind, HighCard
+    FourOfAKind(CardValue, Card) = 8,
+    // Big House, Small House
+    FullHouse(CardValue, CardValue) = 7,
+    // High Card
+    Flush(Card) = 6,
+    // High Card
+    Straight(Card) = 5,
+    // Kind, High Card
+    ThreeOfAKind(CardValue, Card) = 4,
+    // Pair, Pair, High Card
+    TwoPair(CardValue, CardValue, Card) = 3,
+    // Pair, High Card
+    Pair(CardValue, Card) = 2,
+    HighCard(Card) = 1
+}
+
+impl Hand {
+    fn discriminant(&self) -> isize {
+        unsafe { *(self as *const Self as *const isize) }
+    }
+}
+
+impl PartialEq<Self> for Hand {
+    fn eq(&self, other: &Self) -> bool {
+        matches!(self.cmp(other), Ordering::Equal)
+    }
+}
+
+impl Eq for Hand {
+}
+
+impl PartialOrd for Hand {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Hand {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (StraightFlush(a_v), StraightFlush(b_v))
+            | (Flush(a_v), Flush(b_v))
+            | (Straight(a_v), Straight(b_v))
+            | (Hand::HighCard(a_v), Hand::HighCard(b_v)) => a_v.cmp(b_v),
+            (Hand::FourOfAKind(a_v, a_high), Hand::FourOfAKind(b_v, b_high))
+            | (Hand::ThreeOfAKind(a_v, a_high), Hand::ThreeOfAKind(b_v, b_high))
+            | (Hand::Pair(a_v, a_high), Hand::Pair(b_v, b_high))=> {
+                let cmp = a_v.cmp(b_v);
+
+                match cmp {
+                    Ordering::Equal => a_high.cmp(b_high),
+                    a => a
+                }
+            }
+            (Hand::FullHouse(aa_v, ab_v), Hand::FullHouse(ba_v, bb_v)) => {
+                match aa_v.cmp(ba_v) {
+                    Ordering::Equal => ab_v.cmp(bb_v),
+                    a => a
+                }
+            },
+            (Hand::TwoPair(aa_v, ab_v, a_high), Hand::TwoPair(ba_v, bb_v, b_high)) => {
+                match aa_v.cmp(ba_v) {
+                    Ordering::Equal => match ab_v.cmp(bb_v) {
+                        Ordering::Equal => a_high.cmp(b_high),
+                        a => a
+                    },
+                    a => a
+                }
+            },
+            (a, b) => a.discriminant().cmp(&b.discriminant())
+        }
+    }
+}
+
+fn calculate_hand(mut hand: Vec<Card>) -> Hand {
+    assert!(!hand.is_empty());
+
+    hand.sort();
+
+    let is_straight_ace_high: bool
+        = zip(
+            hand.iter().take(hand.len() - 1),
+            hand.iter().skip(1))
+        .all(|(a,b)| a.1 as isize + 1 == b.1 as isize);
+    let hand_ace_low = hand.iter().map(|x| match x.1 {
+        CardValue::Ace => 1,
+        a => a as isize
+    });
+    // TODO This could be way more efficient
+    let is_straight_ace_low
+        = zip(
+            hand_ace_low.clone().take(hand_ace_low.len() - 1),
+            hand_ace_low.skip(1))
+        .all(|(a,b)| a + 1 == b);
+    let is_straight = is_straight_ace_low || is_straight_ace_high;
+
+    let is_flush: bool = hand.iter().map(|x| x.0).all_equal();
+
+    let high_card : Card = *hand.last().expect("Hand cannot have been empty");
+
+    match (is_straight, is_flush, hand.len()) {
+        (true, true, 5) => StraightFlush(high_card),
+        (true, false, 5) => Straight(high_card),
+        (false, true, 5) => Flush(high_card),
+        (_, _, _hand_len) => {
+            let hand_values = hand.iter().counts_by(|c| c.1);
+            let mut hand_value_order: Vec<_> = hand_values.into_iter().sorted_by_key(|(_, count)| *count).collect();
+
+            if let Some((first_highest_value, first_highest_count)) = hand_value_order.pop() {
+                match first_highest_count {
+                    1 => Hand::HighCard(high_card),
+                    2 => {
+                        if let Some((sec_highest_value, 2)) = hand_value_order.pop() {
+                            Hand::TwoPair(first_highest_value, sec_highest_value, high_card)
+                        } else {
+                            Hand::Pair(first_highest_value, high_card)
+                        }
+                    },
+                    3 => {
+                        if let Some((sec_highest_value, 2)) = hand_value_order.pop() {
+                            Hand::FullHouse(first_highest_value, sec_highest_value)
+                        } else {
+                            Hand::ThreeOfAKind(first_highest_value, high_card)
+                        }
+                    }
+                    _ => Hand::FourOfAKind(first_highest_value, high_card),
+                }
+            } else {
+                Hand::HighCard(high_card)
+            }
+        }
+    }
+}
+
+fn calculate_best_hand(hand: [Card; 2], table: &Vec<Card>) -> Hand {
+    let all_cards: Vec<Card> = table.iter().chain(hand.iter()).map(|x| x.to_owned()).collect();
+    let hand_size = min(all_cards.len(), 5);
+
+    // println!("{:?}", all_cards);
+
+    let permutations = all_cards.into_iter().permutations(hand_size);
+
+    permutations.into_iter().map(|h| calculate_hand(h)).max()
+        .expect("Permutations cannot be empty")
+}
 
 struct PlayerInfo {
     uuid: Uuid,
@@ -192,7 +372,7 @@ impl GameStage {
     }
 }
 
-struct StartedGame {
+struct ActiveGame {
     players: (VecDeque<DealtPlayer>, VecDeque<DealtPlayer>),
     game_stage: GameStage,
     minimum_bet: usize,
@@ -200,24 +380,35 @@ struct StartedGame {
     pot: usize
 }
 
+struct PlayerEnvironment {
+    // players:
+}
+
+#[derive(Debug)]
 enum PokerActions {
     Raise(usize),
     Call,
     Fold
 }
 
-impl StartedGame {
+struct NewGame {
+    deck: Deck,
+    players: Vec<PlayerInfo>,
+    minimum_bet: usize
+}
+
+impl ActiveGame {
     // Last two players in the list are always small and big blind
     fn new_with_players(players: Vec<PlayerInfo>, minimum_bet: usize) -> Self {
         let mut deck: Deck = Deck::new();
-        let n_players = players.len();
+        let n_players = players.len() as isize;
         let players_dealt: VecDeque<_> = players
             .into_iter()
             .enumerate()
-            .map(|(i, p)| DealtPlayer { player_info: p, cards: deck.draw_n(), current_bet: std::cmp::max(i + 2 - n_players, 0) * minimum_bet / 2 })
+            .map(|(i, p)| DealtPlayer { player_info: p, cards: deck.draw_n(), current_bet: std::cmp::max(i as isize + 2 - n_players, 0) as usize * minimum_bet / 2 })
             .collect();
 
-        StartedGame {
+        ActiveGame {
             players: (VecDeque::with_capacity(players_dealt.len()), players_dealt),
             game_stage: GameStage::Dealt(deck),
             minimum_bet,
@@ -280,5 +471,23 @@ impl StartedGame {
 
     fn is_finished(&self) -> bool {
         matches!(self.game_stage, GameStage::Finished(_))
+    }
+
+    fn distribute_pots(&self) {
+        assert!(self.is_finished());
+
+
+    }
+
+    fn get_environment(self) -> PlayerEnvironment {
+        todo!()
+    }
+}
+
+impl <'a> ActiveGame {
+    fn peek_next_player_info(&'a self) -> &'a PlayerInfo {
+        &self.players.1.front()
+            .expect("game should always have a next player")
+            .player_info
     }
 }
