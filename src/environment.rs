@@ -1,11 +1,16 @@
 use std::cmp::{min, Ordering};
 use std::collections::VecDeque;
 use rand;
+use rand::distributions::Standard;
+use rand::prelude::Distribution;
 use rand::Rng;
 use rand::rngs::ThreadRng;
 use uuid::Uuid;
 
-#[derive(Ord, PartialOrd, Eq, PartialEq)]
+#[cfg!(test)]
+mod tests;
+
+#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 enum CardSuit {
     Hearts = 0,
     Diamonds = 1,
@@ -13,6 +18,18 @@ enum CardSuit {
     Spades = 3,
 }
 
+impl Distribution<CardSuit> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> CardSuit {
+        match rng.gen_range(0..4) {
+            0 => CardSuit::Hearts,
+            1 => CardSuit::Diamonds,
+            2 => CardSuit::Clubs,
+            _ => CardSuit::Spades
+        }
+    }
+}
+
+#[derive(Debug)]
 enum CardColor {
     Red,
     Black
@@ -27,7 +44,7 @@ impl CardSuit {
     }
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
 enum CardValue {
     Ace = 14,
     Two = 2,
@@ -44,10 +61,36 @@ enum CardValue {
     King = 13
 }
 
-#[derive(Eq, PartialEq)]
+impl Distribution<CardValue> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> CardValue {
+        match rng.gen_range(2..15) {
+            2 => CardValue::Two,
+            3 => CardValue::Three,
+            4 => CardValue::Four,
+            5 => CardValue::Five,
+            6 => CardValue::Six,
+            7 => CardValue::Seven,
+            8 => CardValue::Eight,
+            9 => CardValue::Nine,
+            10 => CardValue::Ten,
+            11 => CardValue::Jack,
+            12 => CardValue::Queen,
+            13 => CardValue::King,
+            _ => CardValue::Ace,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 struct Card(CardSuit, CardValue);
 
-impl PartialOrd<Self> for Card {
+impl Distribution<Card> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Card {
+        Card(rng.gen(), rng.gen())
+    }
+}
+
+impl PartialOrd<Card> for Card {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -94,48 +137,56 @@ impl Deck {
     }
 
     fn draw(&mut self) -> Card {
-        let card_value: CardValue = self.rng.gen_range(2usize..15).try_into().expect("Card Values should all be in range");
-        let card_suit: CardSuit = self.rng.gen_range(0usize..4).try_into().expect("Card Suits should all be in range");
-        let card = Card(card_suit, card_value);
+        let card: Card = self.rng.gen();
 
         if self.taboo_list.contains(&card) {
             self.draw()
         }
         else {
+            self.taboo_list.push(card);
             card
         }
     }
 
     fn draw_n<const N: usize>(&mut self) -> [Card; N] {
-        (0..N).map(|_| self.draw()).collect()
+        (0..N).map(|_| self.draw()).collect::<Vec<_>>().try_into().expect("Array should be of the correct size")
     }
 }
 
 enum GameStage {
     Dealt(Deck),
     Flop(Deck, [Card;3]),
-    River(Deck, [Card;4]),
-    Turn(Deck, [Card;5]),
+    Turn(Deck, [Card;4]),
+    River(Deck, [Card;5]),
     Finished(Vec<Card>) // We don't know how many cards will be on the table when we finish.
 }
 
 impl GameStage {
     fn advance(self) -> Self {
         match self {
-            GameStage::Dealt(mut d) => GameStage::Flop(d, d.draw_n()),
-            GameStage::Flop(mut d, table) => GameStage::River(d, [table] + d.draw_n()),
-            GameStage::River(mut d, table) => GameStage::Turn(d, [table] + d.draw_n()),
-            GameStage::Turn(_, table) => GameStage::Finished(Vec::from(table)),
+            GameStage::Dealt(mut deck) => {
+                let abc = deck.draw_n();
+                GameStage::Flop(deck, abc)
+            },
+            GameStage::Flop(mut deck, [a, b, c]) => {
+                let d = deck.draw();
+                GameStage::Turn(deck, [a,b,c,d])
+            },
+            GameStage::Turn(mut deck, [a, b, c,d]) => {
+                let e = deck.draw();
+                GameStage::River(deck, [a,b,c,d,e])
+            },
+            GameStage::River(_, table) => GameStage::Finished(Vec::from(table)),
             GameStage::Finished(_) => panic!("Cannot advance finished state")
         }
     }
 
     fn finish(self) -> Self {
-        Self::Finished(match Self {
+        Self::Finished(match self {
             GameStage::Dealt(_) => Vec::with_capacity(0),
-            GameStage::Flop(_, table)
-            | GameStage::River(_, table)
-            | GameStage::Turn(_, table) => Vec::from(table),
+            GameStage::Flop(_, table) => Vec::from(table),
+            GameStage::Turn(_, table) => Vec::from(table),
+            GameStage::River(_, table) => Vec::from(table),
             GameStage::Finished(a) => a
         })
     }
@@ -159,7 +210,12 @@ impl StartedGame {
     // Last two players in the list are always small and big blind
     fn new_with_players(players: Vec<PlayerInfo>, minimum_bet: usize) -> Self {
         let mut deck: Deck = Deck::new();
-        let players_dealt = players.into_iter().map(|p| DealtPlayer { player_info: p, cards: deck.draw_n(), current_bet: 0}).collect();
+        let n_players = players.len();
+        let players_dealt: VecDeque<_> = players
+            .into_iter()
+            .enumerate()
+            .map(|(i, p)| DealtPlayer { player_info: p, cards: deck.draw_n(), current_bet: std::cmp::max(i + 2 - n_players, 0) * minimum_bet / 2 })
+            .collect();
 
         StartedGame {
             players: (VecDeque::with_capacity(players_dealt.len()), players_dealt),
@@ -220,5 +276,9 @@ impl StartedGame {
         }
 
         self
+    }
+
+    fn is_finished(&self) -> bool {
+        matches!(self.game_stage, GameStage::Finished(_))
     }
 }
