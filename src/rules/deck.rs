@@ -4,17 +4,20 @@ use rand::prelude::ThreadRng;
 use rand::Rng;
 use super::{Card, CardValue, CardSuit};
 
-pub struct Deck {
-    rng: ThreadRng,
+#[derive(Clone)]
+pub struct Deck<R> where R: Rng + Sized {
+    rng: R,
     taboo_list: HashSet<Card>,
 }
 
-impl Deck {
-    pub fn new() -> Self {
+impl Deck<ThreadRng> {
+    pub fn new() -> Deck<ThreadRng> {
         Self::new_with_rng(rand::thread_rng())
     }
+}
 
-    pub fn new_with_rng(rng: ThreadRng) -> Self {
+impl <R: Rng + Sized> Deck<R> {
+    pub fn new_with_rng(rng: R) -> Self {
         Self {
             rng,
             taboo_list: HashSet::new(),

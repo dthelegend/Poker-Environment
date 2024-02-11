@@ -148,8 +148,6 @@ pub fn calculate_best_hand(hand: [Card; 2], table: &Vec<Card>) -> Hand {
         .collect();
     let hand_size = min(all_cards.len(), 5);
 
-    // println!("{:?}", all_cards);
-
     let permutations = all_cards.into_iter().permutations(hand_size);
 
     permutations

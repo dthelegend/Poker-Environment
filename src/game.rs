@@ -1,6 +1,6 @@
 use std::cmp::min;
-use std::fmt::Display;
 use itertools::Itertools;
+use rand::Rng;
 use playlist::Playlist;
 use crate::rules::{Card, Deck};
 
@@ -15,29 +15,30 @@ mod playlist;
 mod history;
 mod action;
 
-pub enum BettingRound {
+#[derive(Clone)]
+pub enum BettingRound<R: Rng + Sized> {
     PreFlop {
-        deck: Deck,
+        deck: Deck<R>,
         play_list: Playlist<DealtPlayer>,
         bet: (usize, usize, usize),
         history: GameHistory
     },
     Flop {
-        deck: Deck,
+        deck: Deck<R>,
         play_list: Playlist<DealtPlayer>,
         bet: (usize, usize, usize),
         table: [Card; 3],
         history: [GameHistory; 2]
     },
     Turn {
-        deck: Deck,
+        deck: Deck<R>,
         play_list: Playlist<DealtPlayer>,
         bet: (usize, usize, usize),
         table: [Card; 4],
         history: [GameHistory; 3]
     },
     River {
-        deck: Deck,
+        deck: Deck<R>,
         play_list: Playlist<DealtPlayer>,
         bet: (usize, usize, usize),
         table: [Card; 5],
@@ -45,36 +46,43 @@ pub enum BettingRound {
     }
 }
 
-impl BettingRound {
+impl <R: Rng + Sized> BettingRound<R> {
 
-    pub fn update_state(mut self, next_player_action: Action) -> GameState {
+    pub fn update_state(mut self, next_player_action: Action) -> GameState<R> {
         let (BettingRound::PreFlop { play_list, bet: (pot, expected_bet, minimum_bet), history, .. }
         | BettingRound::Flop { play_list, bet: (pot, expected_bet, minimum_bet), history: [.., history], .. }
         | BettingRound::Turn { play_list, bet: (pot, expected_bet, minimum_bet), history: [.., history], .. }
         | BettingRound::River { play_list, bet: (pot, expected_bet, minimum_bet), history: [.., history], .. }) = &mut self;
 
+        // Perform the players action
         match next_player_action {
             Action::Raise(raise_amount) => {
-                play_list.next(move |current_player| {
-                    let (player_remaining_balance, ref mut player_bet) = current_player.balance;
+                let should_reset = play_list.next(move |current_player| {
+                    let (ref  mut player_remaining_balance, ref mut player_bet) = current_player.balance;
                     // Player cannot raise more than they have.
                     // Players who wish to stay in should call if they cannot afford in order to win the side pot
                     // Also force folds on inputs smaller than the minimum bet
                     // Raise gives a guarantee this is not the last player
-                    if raise_amount + *expected_bet > player_remaining_balance + *player_bet
+                    if raise_amount + *expected_bet > *player_remaining_balance + *player_bet
                         || raise_amount < *minimum_bet
                     {
                         history.push(ActionHistory(current_player.player_id.clone(), Action::Fold));
                         false
                     } else {
                         *expected_bet += raise_amount;
+                        *player_remaining_balance -= *expected_bet - *player_bet;
                         *player_bet = *expected_bet;
                         *pot += raise_amount;
                         current_player.expectation = *pot;
                         history.push(ActionHistory(current_player.player_id.clone(), next_player_action));
+
                         true
                     }
                 });
+
+                if should_reset {
+                    play_list.restart()
+                }
             }
             Action::Call => {
                 play_list.next(move |current_player| {
@@ -102,7 +110,51 @@ impl BettingRound {
             }
         }
 
-        if play_list.is_finished() {
+        // Then check that the next player isn't the only player
+        if play_list.len() == 1 {
+            match self {
+                BettingRound::PreFlop{ play_list, bet: (pot, expected_bet, ..), history, .. } => {
+                    GameState::Finished(
+                        Showdown {
+                            players: play_list.into_lists(),
+                            table: Vec::with_capacity(0),
+                            bet: (pot, expected_bet),
+                            history: vec![history]
+                        }
+                    )
+                }
+                BettingRound::Flop{ play_list, bet: (pot, expected_bet, ..), table, history, .. } => {
+                    GameState::Finished(
+                        Showdown {
+                            players: play_list.into_lists(),
+                            table: Vec::from(table),
+                            bet: (pot, expected_bet),
+                            history: Vec::from(history)
+                        }
+                    )
+                }
+                BettingRound::Turn{ play_list, bet: (pot, expected_bet, ..), table, history, .. } => {
+                    GameState::Finished(
+                        Showdown {
+                            players: play_list.into_lists(),
+                            table: Vec::from(table),
+                            bet: (pot, expected_bet),
+                            history: Vec::from(history)
+                        }
+                    )
+                }
+                BettingRound::River{ play_list, bet: (pot, expected_bet, _), table, history, .. } => GameState::Finished(
+                    Showdown {
+                        players: play_list.into_lists(),
+                        table: Vec::from(table),
+                        bet: (pot, expected_bet),
+                        history: Vec::from(history)
+                    }
+                )
+            }
+        }
+        // Otherwise check if we must proceed to the next round
+        else if play_list.is_finished() {
             play_list.restart();
 
             match self {
@@ -146,14 +198,16 @@ impl BettingRound {
                 }
                 BettingRound::River{ play_list, bet: (pot, expected_bet, _), table, history, .. } => GameState::Finished(
                     Showdown {
-                        players: (play_list.1.into(), play_list.2),
+                        players: play_list.into_lists(),
                         table: Vec::from(table),
                         bet: (pot, expected_bet),
                         history: Vec::from(history)
                     }
                 )
             }
-        } else {
+        }
+        // If neither, continue with this round
+        else {
             GameState::BettingRound(self)
         }
     }
@@ -175,7 +229,7 @@ impl BettingRound {
             let mut x = play_list.1.clone();
             let current_player = x.pop_front()
                 .expect("There must always be at least one player");
-            (current_player, x.into_iter().chain(play_list.2.iter().cloned()).map(|x| x.into()).collect())
+            (current_player, x.into_iter().chain(play_list.0.iter().cloned()).map(|x| x.into()).collect())
         };
 
         Environment {
@@ -187,14 +241,15 @@ impl BettingRound {
     }
 }
 
-pub enum GameState {
-    BettingRound(BettingRound),
+#[derive(Clone)]
+pub enum GameState<R: Rng + Sized> {
+    BettingRound(BettingRound<R>),
     Finished(Showdown)
 }
 
-impl GameState {
-    pub fn new_with_players(players: Vec<Player>, minimum_bet: usize) -> Self {
-        let mut deck: Deck = Deck::new();
+impl <R: Rng + Sized> GameState<R> {
+    pub fn new_with_players(rng: R, players: Vec<Player>, minimum_bet: usize) -> Self {
+        let mut deck: Deck<R> = Deck::new_with_rng(rng);
         let n_players = players.len();
 
         let dealt_players = players
@@ -204,7 +259,7 @@ impl GameState {
                 DealtPlayer {
                     player_id,
                     hand: deck.draw_n(),
-                    balance: (balance, blind),
+                    balance: (balance - blind, blind),
                     expectation: blind
                 }
             })
@@ -221,6 +276,7 @@ impl GameState {
     }
 }
 
+#[derive(Clone)]
 pub struct Showdown {
     pub players: (Vec<DealtPlayer>, Vec<DealtPlayer>),
     pub bet: (usize, usize),
@@ -237,12 +293,10 @@ impl Showdown {
 
         let sum_exp: usize = winning_players.iter().map(|x| x.expectation).sum();
 
-        let mut remaining_pot = pot;
         for winner in winning_players {
             let share = (winner.expectation / sum_exp) * pot;
 
             winner.balance.0 += share;
-            remaining_pot -= share;
         }
 
         let mut out_players = player_list;

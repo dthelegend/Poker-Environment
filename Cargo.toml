@@ -11,5 +11,5 @@ crate-type = ["cdylib"]
 [dependencies]
 itertools = "0.12.1"
 pyo3 = "0.19.0"
-rand = "0.8.5"
+rand = { version = "0.8.5", features = ["std_rng"] }
 uuid = { version = "1.7.0", features = ["v4"] }

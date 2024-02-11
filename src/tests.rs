@@ -1,8 +1,11 @@
-use rand::{Rng, thread_rng};
+use rand::{Rng, SeedableRng, thread_rng};
+use rand::prelude::StdRng;
 use crate::rules::calculate_best_hand;
 use crate::game::GameState;
 use crate::game::Action;
 use crate::game::Player;
+
+const SEED: u64 = 12;
 
 #[test]
 fn test_all_call() {
@@ -32,7 +35,8 @@ fn test_all_call() {
             balance: 20
         }
     ];
-    let mut game = GameState::new_with_players(test_players, 2);
+    let test_players_len = test_players.len();
+    let mut game = GameState::new_with_players(StdRng::seed_from_u64(SEED), test_players, 2);
 
     let mut x = 0;
     while {
@@ -48,7 +52,7 @@ fn test_all_call() {
         x += 1;
     }
 
-    assert_eq!(6 * 4, x);
+    assert_eq!(test_players_len * 4, x);
     println!("Finished!")
 }
 
@@ -83,7 +87,7 @@ fn test_random() {
         // }
     ];
 
-    let mut game = GameState::new_with_players(test_players, 2);
+    let mut game = GameState::new_with_players(StdRng::seed_from_u64(SEED), test_players, 2);
     let mut rng = thread_rng();
 
     while {
@@ -98,7 +102,7 @@ fn test_random() {
                     Action::Fold
                 };
 
-                println!("{:?}: {:?}", betting_round.get_environment(), action);
+                println!("---\n{}\n\n{:?}", betting_round.get_environment(), action);
 
                 game = betting_round.update_state(action);
 
@@ -129,4 +133,59 @@ fn test_random() {
         println!("---\nBest Hand: {:?}", &hand_list.iter().max().unwrap());
         println!("---\nNew Players: {:?}", sd.calculate_players())
     }
+}
+
+#[test]
+fn test_fold_bar_one() {
+    let test_players = vec![
+        Player {
+            player_id: "Player 1".to_string(),
+            balance: 20
+        },
+        Player {
+            player_id: "Player 2".to_string(),
+            balance: 20
+        },
+        Player {
+            player_id: "Player 3".to_string(),
+            balance: 20
+        },
+        Player {
+            player_id: "Player 4".to_string(),
+            balance: 20
+        },
+        Player {
+            player_id: "Player 5".to_string(),
+            balance: 20
+        },
+        Player {
+            player_id: "Player 6".to_string(),
+            balance: 20
+        }
+    ];
+    let test_players_len = test_players.len();
+    let mut game = GameState::new_with_players(StdRng::seed_from_u64(SEED), test_players, 2);
+
+    for _ in 0..(test_players_len - 1) {
+        match game {
+            GameState::BettingRound(betting_round) => {
+                game = betting_round.update_state(Action::Fold);
+            },
+            _ => panic!("Game finished before everyone folded!")
+        }
+    }
+    while {
+        match game {
+            GameState::BettingRound(betting_round) => {
+                game = betting_round.update_state(Action::Fold);
+
+                true
+            },
+            _ => false
+        }
+    } {
+        panic!("Game did not immediately finish after everyone folded!")
+    }
+
+    println!("Finished!")
 }
