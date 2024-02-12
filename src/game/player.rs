@@ -8,7 +8,7 @@ pub struct DealtPlayer {
     pub expectation: usize
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Player {
     pub player_id: String,
     pub balance: usize

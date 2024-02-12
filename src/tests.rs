@@ -131,7 +131,10 @@ fn test_random() {
         }
         println!();
         println!("---\nBest Hand: {:?}", &hand_list.iter().max().unwrap());
-        println!("---\nNew Players: {:?}", sd.calculate_players())
+        println!("---\nNew Players: {:?}", sd.players);
+        assert_eq!(sd.players.0.iter().map(|x| x.balance.1).sum::<usize>(), 0);
+        assert_eq!(sd.players.0.iter().map(|x| x.expectation).sum::<usize>(), 0);
+        assert_eq!(sd.players.0.iter().map(|x| x.balance.0).sum::<usize>() + sd.players.1.iter().map(|x| x.balance).sum::<usize>(), 4 * 20)
     }
 }
 

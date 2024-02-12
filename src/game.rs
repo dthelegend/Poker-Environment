@@ -1,8 +1,9 @@
+use std::array::IntoIter;
 use std::cmp::min;
 use itertools::Itertools;
 use rand::Rng;
 use playlist::Playlist;
-use crate::rules::{Card, Deck};
+use crate::rules::{calculate_best_hand, Card, Deck, Hand};
 
 pub use player::*;
 pub use environment::*;
@@ -70,9 +71,10 @@ impl <R: Rng + Sized> BettingRound<R> {
                         false
                     } else {
                         *expected_bet += raise_amount;
-                        *player_remaining_balance -= *expected_bet - *player_bet;
+                        let balance_change = *expected_bet - *player_bet;
+                        *player_remaining_balance -= balance_change;
                         *player_bet = *expected_bet;
-                        *pot += raise_amount;
+                        *pot += balance_change;
                         current_player.expectation = *pot;
                         history.push(ActionHistory(current_player.player_id.clone(), next_player_action));
 
@@ -114,9 +116,10 @@ impl <R: Rng + Sized> BettingRound<R> {
         if play_list.len() == 1 {
             match self {
                 BettingRound::PreFlop{ play_list, bet: (pot, expected_bet, ..), history, .. } => {
+                    let (actives, folded) = play_list.into_lists();
                     GameState::Finished(
                         Showdown {
-                            players: play_list.into_lists(),
+                            players: (distribute_pot(pot, &Vec::with_capacity(0), actives), folded.into_iter().map(|x| x.into()).collect()),
                             table: Vec::with_capacity(0),
                             bet: (pot, expected_bet),
                             history: vec![history]
@@ -124,9 +127,10 @@ impl <R: Rng + Sized> BettingRound<R> {
                     )
                 }
                 BettingRound::Flop{ play_list, bet: (pot, expected_bet, ..), table, history, .. } => {
+                    let (actives, folded) = play_list.into_lists();
                     GameState::Finished(
                         Showdown {
-                            players: play_list.into_lists(),
+                            players: (distribute_pot(pot, &Vec::from(table), actives), folded.into_iter().map(|x| x.into()).collect()),
                             table: Vec::from(table),
                             bet: (pot, expected_bet),
                             history: Vec::from(history)
@@ -134,23 +138,27 @@ impl <R: Rng + Sized> BettingRound<R> {
                     )
                 }
                 BettingRound::Turn{ play_list, bet: (pot, expected_bet, ..), table, history, .. } => {
+                    let (actives, folded) = play_list.into_lists();
                     GameState::Finished(
                         Showdown {
-                            players: play_list.into_lists(),
+                            players: (distribute_pot(pot, &Vec::from(table), actives), folded.into_iter().map(|x| x.into()).collect()),
                             table: Vec::from(table),
                             bet: (pot, expected_bet),
                             history: Vec::from(history)
                         }
                     )
                 }
-                BettingRound::River{ play_list, bet: (pot, expected_bet, _), table, history, .. } => GameState::Finished(
-                    Showdown {
-                        players: play_list.into_lists(),
-                        table: Vec::from(table),
-                        bet: (pot, expected_bet),
-                        history: Vec::from(history)
-                    }
-                )
+                BettingRound::River{ play_list, bet: (pot, expected_bet, _), table, history, .. } => {
+                    let (actives, folded) = play_list.into_lists();
+                    GameState::Finished(
+                        Showdown {
+                            players: (distribute_pot(pot, &Vec::from(table), actives), folded.into_iter().map(|x| x.into()).collect()),
+                            table: Vec::from(table),
+                            bet: (pot, expected_bet),
+                            history: Vec::from(history)
+                        }
+                    )
+                }
             }
         }
         // Otherwise check if we must proceed to the next round
@@ -196,14 +204,17 @@ impl <R: Rng + Sized> BettingRound<R> {
                         }
                     )
                 }
-                BettingRound::River{ play_list, bet: (pot, expected_bet, _), table, history, .. } => GameState::Finished(
-                    Showdown {
-                        players: play_list.into_lists(),
-                        table: Vec::from(table),
-                        bet: (pot, expected_bet),
-                        history: Vec::from(history)
-                    }
-                )
+                BettingRound::River{ play_list, bet: (pot, expected_bet, _), table, history, .. } => {
+                    let (actives, folded) = play_list.into_lists();
+                    GameState::Finished(
+                        Showdown {
+                            players: (distribute_pot(pot, &Vec::from(table), actives), folded.into_iter().map(|x| x.into()).collect()),
+                            table: Vec::from(table),
+                            bet: (pot, expected_bet),
+                            history: Vec::from(history)
+                        }
+                    )
+                }
             }
         }
         // If neither, continue with this round
@@ -213,11 +224,11 @@ impl <R: Rng + Sized> BettingRound<R> {
     }
 
     pub fn get_environment(&self) -> Environment {
-        let (game_history, table_cards): (Vec<GameHistory>, Vec<Card>) = match self {
-            BettingRound::PreFlop { history,.. } => (vec![history.clone()], Vec::with_capacity(0)),
-            BettingRound::Flop { history: [h1, h2], table, .. } => (Vec::from([h1.clone(),h2.clone()]), Vec::from(table)),
-            BettingRound::Turn { history: [h1, h2, h3], table, .. } => (vec![h1.clone(),h2.clone(), h3.clone()], Vec::from(table)),
-            BettingRound::River { history: [h1, h2, h3, h4], table, .. } => (vec![h1.clone(),h2.clone(), h3.clone(), h4.clone()], Vec::from(table))
+        let (game_history, table_cards, pot): (Vec<GameHistory>, Vec<Card>, usize) = match self {
+            BettingRound::PreFlop { history, bet: (pot, ..), .. } => (vec![history.clone()], Vec::with_capacity(0), *pot),
+            BettingRound::Flop { history: [h1, h2], table, bet: (pot, ..), .. } => (Vec::from([h1.clone(),h2.clone()]), Vec::from(table), *pot),
+            BettingRound::Turn { history: [h1, h2, h3], table, bet: (pot, ..), .. } => (vec![h1.clone(),h2.clone(), h3.clone()], Vec::from(table), *pot),
+            BettingRound::River { history: [h1, h2, h3, h4], table, bet: (pot, ..), .. } => (vec![h1.clone(),h2.clone(), h3.clone(), h4.clone()], Vec::from(table), *pot)
         };
 
         let (current_player, player_states): (DealtPlayer, Vec<DealtPlayerVisible>) = {
@@ -236,8 +247,20 @@ impl <R: Rng + Sized> BettingRound<R> {
             table_cards,
             current_player,
             player_states,
-            game_history
+            game_history,
+            pot
         }
+    }
+}
+
+impl <'a, R: Rng + Sized> BettingRound<R> {
+    pub fn get_players(&'a self) -> Vec<DealtPlayer> {
+        let (BettingRound::PreFlop { play_list, .. }
+        | BettingRound::Flop { play_list, .. }
+        | BettingRound::Turn { play_list, .. }
+        | BettingRound::River { play_list, .. }) = self;
+
+        play_list.clone().into_lists().0
     }
 }
 
@@ -278,30 +301,31 @@ impl <R: Rng + Sized> GameState<R> {
 
 #[derive(Clone)]
 pub struct Showdown {
-    pub players: (Vec<DealtPlayer>, Vec<DealtPlayer>),
+    pub players: (Vec<DealtPlayer>, Vec<Player>),
     pub bet: (usize, usize),
     pub table: Vec<Card>,
     pub history: Vec<GameHistory>
 }
 
-impl Showdown {
-    pub fn calculate_players(self) -> Vec<Player> {
-        let (mut player_list, mut folded_player_list) = self.players;
-        let (pot, ..) = self.bet;
+pub fn distribute_pot(pot: usize, table_cards: &Vec<Card>, mut active_players: Vec<DealtPlayer>) -> Vec<DealtPlayer> {
+    let winner_list: Vec<&mut DealtPlayer> = active_players.iter_mut().max_set_by_key(|x| x.hand);
 
-        let winning_players = player_list.iter_mut().max_set_by_key(|x| x.hand);
+    let sum_exp: usize = winner_list.iter().map(|x| x.expectation).sum();
 
-        let sum_exp: usize = winning_players.iter().map(|x| x.expectation).sum();
+    for winner in winner_list {
+        let share = (winner.expectation * pot) / sum_exp;
 
-        for winner in winning_players {
-            let share = (winner.expectation / sum_exp) * pot;
-
-            winner.balance.0 += share;
-        }
-
-        let mut out_players = player_list;
-        out_players.append(&mut folded_player_list);
-
-        out_players.into_iter().map(Player::from).collect()
+        winner.balance.0 += share;
     }
+
+    // Reset all the current bets and expectations for all the dealt players
+    let all_players = active_players.into_iter().map(|mut x| {
+        x.balance.1 = 0;
+        x.expectation = 0;
+
+        x
+    }).collect();
+
+    all_players
 }
+
