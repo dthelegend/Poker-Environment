@@ -41,16 +41,18 @@ impl TryFrom<String> for Action {
     type Error = ActionParseError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.to_uppercase().split_once(" ") {
-            Some(("CALL", "")) => Ok(Call),
-            Some(("RAISE", a)) => {
+        let command_uppercase = value.to_uppercase();
+        let mut command_parts = command_uppercase.split_whitespace();
+        match (command_parts.next(), command_parts.next()) {
+            (Some("CALL"), None) => Ok(Call),
+            (Some("RAISE"), Some(a)) => {
                 if let Ok(raise_amount) = a.trim().parse::<usize>() {
                     Ok(Action::Raise(raise_amount))
                 } else {
                     Err(ActionParseError::RaiseAmountError)
                 }
             },
-            Some(("FOLD", "")) => Ok(Fold),
+            (Some("FOLD"), None) => Ok(Fold),
             _ => Err(ActionParseError::UnrecognisedCommand)
         }
     }

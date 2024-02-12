@@ -12,13 +12,25 @@ use rand::prelude::StdRng;
 use rand::SeedableRng;
 use game::Player;
 use crate::game::{ActionHistory, DealtPlayer, DealtPlayerVisible, Environment, GameState};
-use crate::rules::Card;
 
 #[pyclass]
 #[derive(Clone)]
 struct PyPlayerInfo {
+    #[pyo3(get)]
     player_id: String,
+    #[pyo3(get)]
     balance: usize
+}
+
+#[pymethods]
+impl PyPlayerInfo {
+    #[new]
+    fn py_new(player_id: String, balance: usize) -> Self {
+        PyPlayerInfo {
+            player_id,
+            balance
+        }
+    }
 }
 
 impl From<PyPlayerInfo> for Player {
@@ -41,11 +53,16 @@ struct PyPokerGame {
 }
 
 #[pyclass]
+#[derive(Clone)]
 struct PyPokerDealtPlayer {
+    #[pyo3(get)]
     player_id: String,
+    #[pyo3(get)]
     remaining_balance: usize,
+    #[pyo3(get)]
     committed_balance: usize,
-    hand: Vec<Card>
+    #[pyo3(get)]
+    hand: Vec<String>
 }
 
 impl From<DealtPlayer> for PyPokerDealtPlayer {
@@ -54,15 +71,19 @@ impl From<DealtPlayer> for PyPokerDealtPlayer {
             player_id: value.player_id,
             remaining_balance: value.balance.0,
             committed_balance: value.balance.1,
-            hand: Vec::from(value.hand)
+            hand: value.hand.into_iter().map(|x| format!("{}", x)).collect()
         }
     }
 }
 
 #[pyclass]
+#[derive(Clone)]
 struct PyPokerDealtPlayerVisible {
+    #[pyo3(get)]
     player_id: String,
+    #[pyo3(get)]
     remaining_balance: usize,
+    #[pyo3(get)]
     committed_balance: usize
 }
 
@@ -79,8 +100,11 @@ impl From<DealtPlayerVisible> for PyPokerDealtPlayerVisible {
 type PyPokerGameHistory = Vec<Vec<PyPokerActionHistory>>;
 
 #[pyclass]
+#[derive(Clone)]
 struct PyPokerActionHistory {
+    #[pyo3(get)]
     player_id: String,
+    #[pyo3(get)]
     action: String
 }
 
@@ -94,10 +118,15 @@ impl From<ActionHistory> for PyPokerActionHistory {
 }
 
 #[pyclass]
+#[derive(Clone)]
 struct PyPokerEnvironment {
+    #[pyo3(get)]
     table_cards: Vec<String>,
+    #[pyo3(get)]
     current_player: PyPokerDealtPlayer,
+    #[pyo3(get)]
     player_states: Vec<PyPokerDealtPlayerVisible>,
+    #[pyo3(get)]
     game_history: PyPokerGameHistory
 }
 
@@ -121,23 +150,21 @@ impl PyPokerGame {
         }
     }
 
-    pub fn advance(&mut self, action: String) -> PyResult<Option<Vec<PyPlayerInfo>>> {
+    fn advance(&mut self, action: String) -> PyResult<Option<Vec<PyPlayerInfo>>> {
         let action_parsed = action.try_into()
             .map_err(|_| PyErr::new::<PyValueError, _>("Failed to parse action"))?;
 
-        self.game = match self.game.clone() {
-            GameState::BettingRound(br) => {
-                br.update_state(action_parsed)
-            },
-            GameState::Finished(a) => {
-                return Ok(Some(a.calculate_players().into_iter().map(|x| x.into()).collect()))
-            }
+        if let GameState::BettingRound(br) = &self.game {
+            self.game = br.clone().update_state(action_parsed)
         };
 
-        Ok(None)
+        match &self.game {
+            GameState::BettingRound(_) => Ok(None),
+            GameState::Finished(a) => Ok(Some(a.clone().calculate_players().into_iter().map(|x| x.into()).collect()))
+        }
     }
 
-    pub fn get_environment(&self) -> PyResult<Option<PyPokerEnvironment>> {
+    fn get_environment(&self) -> PyResult<Option<PyPokerEnvironment>> {
         Ok(match &self.game {
             GameState::BettingRound(a) => Some(a.get_environment().into()),
             GameState::Finished(_) => None
