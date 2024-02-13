@@ -278,12 +278,13 @@ impl <R: Rng + Sized> GameState<R> {
         let dealt_players: Vec<DealtPlayer> = players
             .into_iter().enumerate()
             .map(|(i, Player { player_id, balance}) | {
-                let blind = std::cmp::max(0, i as isize - n_players as isize + 3) as usize * minimum_bet / 2;
+                let blind = std::cmp::max(0, i as isize - n_players as isize + 3) as usize * minimum_bet;
+                let actual_blind = min(blind, balance);
                 DealtPlayer {
                     player_id,
                     hand: deck.draw_n(),
-                    balance: (balance - blind, blind),
-                    expectation: blind
+                    balance: (balance - actual_blind, actual_blind),
+                    expectation: actual_blind
                 }
             })
             .collect();
@@ -292,7 +293,7 @@ impl <R: Rng + Sized> GameState<R> {
             BettingRound::PreFlop {
                 play_list: Playlist::new(dealt_players),
                 deck,
-                bet: (pot, minimum_bet, minimum_bet),
+                bet: (pot, minimum_bet * 2, minimum_bet),
                 history: Vec::with_capacity(n_players)
             }
         )
