@@ -3,6 +3,9 @@ class PyPokerEnvironment:
     current_player: PyPokerPlayer
     player_states: list[PyPokerPlayerVisible]
     game_history: list[list[str]]
+    pot: int
+    minimum_bet: int
+    expected_bet: int
 
 class PyPokerPlayer:
     hand: list[str]
