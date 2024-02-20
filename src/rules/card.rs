@@ -54,6 +54,7 @@ impl Display for CardValue {
             CardValue::King => "K".to_string(),
             CardValue::Queen => "Q".to_string(),
             CardValue::Jack => "J".to_string(),
+            CardValue::Ten => "X".to_string(),
             a => (*a as isize).to_string(),
         };
         write!(f, "{}", s)

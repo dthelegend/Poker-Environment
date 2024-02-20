@@ -127,7 +127,13 @@ struct PyPokerEnvironment {
     #[pyo3(get)]
     player_states: Vec<PyPokerDealtPlayerVisible>,
     #[pyo3(get)]
-    game_history: PyPokerGameHistory
+    game_history: PyPokerGameHistory,
+    #[pyo3(get)]
+    pot: usize,
+    #[pyo3(get)]
+    minimum_bet: usize,
+    #[pyo3(get)]
+    expected_bet: usize
 }
 
 impl From<Environment> for PyPokerEnvironment {
@@ -137,6 +143,9 @@ impl From<Environment> for PyPokerEnvironment {
             current_player: value.current_player.into(),
             player_states: value.player_states.into_iter().map(|x| x.into()).collect(),
             game_history: value.game_history.into_iter().map(|x| x.into_iter().map(|x| x.into()).collect()).collect(),
+            pot: value.pot,
+            expected_bet: value.expected_bet,
+            minimum_bet: value.expected_bet
         }
     }
 }

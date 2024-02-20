@@ -10,16 +10,18 @@ pub struct Environment {
     pub current_player: DealtPlayer,
     pub player_states: Vec<DealtPlayerVisible>,
     pub game_history: Vec<GameHistory>,
-    pub pot: usize
+    pub pot: usize,
+    pub minimum_bet: usize,
+    pub expected_bet: usize
 }
 
 impl Display for Environment {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let table = self.table_cards.iter().map(|x| format!("{}", x)).join("|");
-        write!(f, "\"{}\"'s Environment\n\tTable: |{}|\n\tPot: {}\n\tCards: |{}|{}|\n\tRem. Balance/Bet: {}/{}\n\tOther Players: {:?}",
+        write!(f, "\"{}\"'s Environment\n\tTable: |{}|\n\tPot: {}\\{}\n\tCards: |{}|{}|\n\tRem. Balance/Bet: {}/{}\n\tOther Players: {:?}",
                self.current_player.player_id,
                table,
-               self.pot,
+               self.pot, self.minimum_bet,
                self.current_player.hand[0], self.current_player.hand[1],
                self.current_player.balance.0, self.current_player.balance.1,
                self.player_states.iter().map(|x| x.balance).collect_vec(),

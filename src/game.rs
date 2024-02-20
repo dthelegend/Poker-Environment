@@ -64,7 +64,7 @@ impl <R: Rng + Sized> BettingRound<R> {
                     // Players who wish to stay in should call if they cannot afford in order to win the side pot
                     // Also force folds on inputs smaller than the minimum bet
                     // Raise gives a guarantee this is not the last player
-                    if raise_amount + *expected_bet > *player_remaining_balance + *player_bet
+                    if raise_amount + *expected_bet - *player_bet > *player_remaining_balance
                         || raise_amount < *minimum_bet
                     {
                         history.push(ActionHistory(current_player.player_id.clone(), Action::Fold));
@@ -224,11 +224,11 @@ impl <R: Rng + Sized> BettingRound<R> {
     }
 
     pub fn get_environment(&self) -> Environment {
-        let (game_history, table_cards, pot): (Vec<GameHistory>, Vec<Card>, usize) = match self {
-            BettingRound::PreFlop { history, bet: (pot, ..), .. } => (vec![history.clone()], Vec::with_capacity(0), *pot),
-            BettingRound::Flop { history: [h1, h2], table, bet: (pot, ..), .. } => (Vec::from([h1.clone(),h2.clone()]), Vec::from(table), *pot),
-            BettingRound::Turn { history: [h1, h2, h3], table, bet: (pot, ..), .. } => (vec![h1.clone(),h2.clone(), h3.clone()], Vec::from(table), *pot),
-            BettingRound::River { history: [h1, h2, h3, h4], table, bet: (pot, ..), .. } => (vec![h1.clone(),h2.clone(), h3.clone(), h4.clone()], Vec::from(table), *pot)
+        let (game_history, table_cards, pot, expected_bet, minimum_bet): (Vec<GameHistory>, Vec<Card>, usize, usize, usize) = match self {
+            BettingRound::PreFlop { history, bet: (pot, expected_bet, minimum_bet), .. } => (vec![history.clone()], Vec::with_capacity(0), *pot, *expected_bet, *minimum_bet),
+            BettingRound::Flop { history: [h1, h2], table, bet: (pot, expected_bet, minimum_bet ), .. } => (Vec::from([h1.clone(),h2.clone()]), Vec::from(table), *pot, *expected_bet, *minimum_bet),
+            BettingRound::Turn { history: [h1, h2, h3], table, bet: (pot, expected_bet, minimum_bet), .. } => (vec![h1.clone(),h2.clone(), h3.clone()], Vec::from(table), *pot, *expected_bet, *minimum_bet),
+            BettingRound::River { history: [h1, h2, h3, h4], table, bet: (pot, expected_bet, minimum_bet), .. } => (vec![h1.clone(),h2.clone(), h3.clone(), h4.clone()], Vec::from(table), *pot, *expected_bet, *minimum_bet)
         };
 
         let (current_player, player_states): (DealtPlayer, Vec<DealtPlayerVisible>) = {
@@ -248,7 +248,9 @@ impl <R: Rng + Sized> BettingRound<R> {
             current_player,
             player_states,
             game_history,
-            pot
+            pot,
+            minimum_bet,
+            expected_bet
         }
     }
 }

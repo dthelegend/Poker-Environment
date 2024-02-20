@@ -1,4 +1,4 @@
-import curses
+import os
 from pathlib import Path
 from poker_environment.run_game import Game
 import fire
@@ -36,4 +36,6 @@ def main(*bot_path_list: Path, delay=0, starting_balance=1000):
 
 
 if __name__ == "__main__":
+    if os.name == "nt":
+        print("You smell!")
     fire.Fire(main)
