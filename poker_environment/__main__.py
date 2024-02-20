@@ -1,3 +1,4 @@
+import curses
 from pathlib import Path
 from poker_environment.run_game import Game
 import fire
@@ -16,7 +17,7 @@ def add_to_dict(d, k, v):
     return add_to_dict_helper(d, k, v, 0)
 
 
-def main(*bot_path_list: Path, delay=0, starting_balance = 1000):
+def main(*bot_path_list: Path, delay=0, starting_balance=1000):
     agent_list = {}
     for bot_path in bot_path_list:
         full_path = Path(bot_path)
@@ -32,6 +33,7 @@ def main(*bot_path_list: Path, delay=0, starting_balance = 1000):
         print(e)
         zzz(delay)
         print()
+
 
 if __name__ == "__main__":
     fire.Fire(main)
