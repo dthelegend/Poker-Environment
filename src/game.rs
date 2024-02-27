@@ -1,9 +1,8 @@
-use std::array::IntoIter;
 use std::cmp::min;
 use itertools::Itertools;
 use rand::Rng;
 use playlist::Playlist;
-use crate::rules::{calculate_best_hand, Card, Deck, Hand};
+use crate::rules::{calculate_best_hand, Card, Deck};
 
 pub use player::*;
 pub use environment::*;
@@ -280,7 +279,16 @@ impl <R: Rng + Sized> GameState<R> {
         let dealt_players: Vec<DealtPlayer> = players
             .into_iter().enumerate()
             .map(|(i, Player { player_id, balance}) | {
-                let blind = std::cmp::max(0, i as isize - n_players as isize + 3) as usize * minimum_bet;
+                let blind = {
+                    if i == 0 {
+                        2
+                    } else if i == n_players - 1 {
+                        1
+                    }
+                    else {
+                        0
+                    }
+                } * minimum_bet;
                 let actual_blind = min(blind, balance);
                 DealtPlayer {
                     player_id,
@@ -291,9 +299,11 @@ impl <R: Rng + Sized> GameState<R> {
             })
             .collect();
         let pot = dealt_players.iter().map(|x| x.balance.1).sum();
+        let mut play_list = Playlist::new(dealt_players);
+        play_list.next(|_| {true});
         GameState::BettingRound(
             BettingRound::PreFlop {
-                play_list: Playlist::new(dealt_players),
+                play_list,
                 deck,
                 bet: (pot, minimum_bet * 2, minimum_bet),
                 history: Vec::with_capacity(n_players)
@@ -311,7 +321,7 @@ pub struct Showdown {
 }
 
 pub fn distribute_pot(pot: usize, table_cards: &Vec<Card>, mut active_players: Vec<DealtPlayer>) -> Vec<DealtPlayer> {
-    let winner_list: Vec<&mut DealtPlayer> = active_players.iter_mut().max_set_by_key(|x| x.hand);
+    let winner_list: Vec<&mut DealtPlayer> = active_players.iter_mut().max_set_by_key(|x| calculate_best_hand(x.hand, table_cards));
 
     let sum_exp: usize = winner_list.iter().map(|x| x.expectation).sum();
 

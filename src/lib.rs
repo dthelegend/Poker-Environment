@@ -4,8 +4,6 @@ mod rules;
 #[cfg(test)]
 mod tests;
 
-use std::error::Error;
-use std::fmt::{Debug, Display};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rand::prelude::StdRng;
