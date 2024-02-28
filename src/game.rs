@@ -82,7 +82,7 @@ impl <R: Rng + Sized> BettingRound<R> {
                 });
 
                 if should_reset {
-                    play_list.restart()
+                    play_list.restart_without_last();
                 }
             }
             Action::Call => {

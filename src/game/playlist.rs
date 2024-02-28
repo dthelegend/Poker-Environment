@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::iter::from_fn;
 
 #[derive(Clone)]
 pub struct Playlist<T>(pub VecDeque<T>, pub VecDeque<T>, pub Vec<T>);
@@ -31,6 +32,16 @@ impl <T> Playlist<T> {
 
     pub fn restart(&mut self) {
         self.1.append(&mut self.0);
+    }
+
+    pub fn restart_without_last(&mut self) {
+        let front_man = self.0.pop_back();
+
+        self.1.append(&mut self.0);
+
+        if let Some (front_man_is_real) = front_man {
+            self.0.push_back(front_man_is_real)
+        }
     }
 
     pub fn is_finished(&self) -> bool {

@@ -143,7 +143,7 @@ impl From<Environment> for PyPokerEnvironment {
             game_history: value.game_history.into_iter().map(|x| x.into_iter().map(|x| x.into()).collect()).collect(),
             pot: value.pot,
             expected_bet: value.expected_bet,
-            minimum_bet: value.expected_bet
+            minimum_bet: value.minimum_bet
         }
     }
 }
